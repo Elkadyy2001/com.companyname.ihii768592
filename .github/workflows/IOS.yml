@@ -24,7 +24,7 @@ jobs:
     - uses: actions/setup-dotnet@v4
       with:
         dotnet-version: 9.0.x
-        steps:
+         steps:
     - name: Set Xcode version 
       run: sudo xcode-select -s /Applications/Xcode_16.4.app    
     - name: Setup Project
@@ -33,23 +33,38 @@ jobs:
        brew install sevenzip
        7z x "AppName.zip"
       
-    - name: Fastlane lane
-      env:
-        MATCH_PASSWORD: '12345678'
-        MATCH_KEYCHAIN_NAME: 'build.keychain'
-        MATCH_KEYCHAIN_PASSWORD: '2001'
-        MATCH_GIT_BASIC_AUTHORIZATION: '${{ secrets.PAT }}'
-      
-      run: |
+      - name: Install the Apple certificate and provisioning profile
+        env:
+         
+          P12_PASSWORD: 20012008
         
-         security create-keychain -p 2001 build.keychain
-         security default-keychain -s build.keychain
-         security list-keychains -s build.keychain
-         security unlock-keychain -p 2001 build.keychain
-         security set-keychain-settings -t 3600 -u build.keychain
-         api_key_json=$(jq -n --arg key "${{secrets.APIKEY}}" --arg key_id "${{ secrets.KEYID }}" --arg issuer_id "${{ secrets.ISSUERID }}" '{key: $key, key_id: $key_id, issuer_id: $issuer_id, in_house: false}')
-         fastlane match nuke distribution  --skip_confirmation true --git_url "${{ secrets.GITURL }}"  --git_branch master  --api_key "$api_key_json"
-         fastlane match appstore --app_identifier com.companyname.ihii --profile_name MyCustomProfileName --git_url "${{ secrets.GITURL }}"  --git_branch master  --api_key "$api_key_json"
+          KEYCHAIN_PASSWORD: 20012008
+        run: |
+          # create variables
+          CERTIFICATE_PATH='./Certificatess.p12'
+          PP_PATH='./testprofile.mobileprovision'
+          KEYCHAIN_PATH=$RUNNER_TEMP/app-signing.keychain-db
+
+          # # import certificate and provisioning profile from secrets
+          # echo -n "$BUILD_CERTIFICATE_BASE64" | base64 --decode -o $CERTIFICATE_PATH
+          # echo -n "$BUILD_PROVISION_PROFILE_BASE64" | base64 --decode -o $PP_PATH
+
+          # create temporary keychain
+          security create-keychain -p "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
+          security set-keychain-settings -lut 21600 $KEYCHAIN_PATH
+          security unlock-keychain -p "20012008" $KEYCHAIN_PATH
+
+          # import certificate to keychain
+          security import $CERTIFICATE_PATH -P "20012008" -A -t cert -f pkcs12 -k $KEYCHAIN_PATH
+          security list-keychain -d user -s $KEYCHAIN_PATH
+
+          # apply provisioning profile
+          mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
+          cp $PP_PATH ~/Library/MobileDevice/Provisioning\ Profiles 
+    - name: Install provisioning profile
+      run: |
+          mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
+          cp './testprofile.mobileprovision' ~/Library/MobileDevice/Provisioning\ Profiles/
     - name: Get Code Signing Key
       id: get_code_signing_key
       run: echo "CODE_SIGNING_KEY=$(security find-identity -p codesigning -v | grep '"' | head -n1 | awk -F '"' '{print $2}')" >> $GITHUB_ENV
@@ -57,7 +72,7 @@ jobs:
       run: dotnet workload install maui-ios
     - name: Publish App
       run: |
-            dotnet publish -f net9.0-ios -c Release -p:ArchiveOnBuild=true -p:RuntimeIdentifier=ios-arm64 -p:CodesignKey="${{ env.CODE_SIGNING_KEY }}" -p:CodesignProvision="MyCustomProfileName"
+            dotnet publish -f net9.0-ios -c Release -p:ArchiveOnBuild=true -p:RuntimeIdentifier=ios-arm64 -p:CodesignKey="${{ env.CODE_SIGNING_KEY }}" -p:CodesignProvision="testprofile"
     - name: Get IPA Path
       id: find-ipa
       run: |
